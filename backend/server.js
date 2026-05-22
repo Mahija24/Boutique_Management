@@ -15,8 +15,13 @@ dotenv.config();
 
 const app = express();
 
-const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-const allowedOrigins = [frontendUrl, 'http://127.0.0.1:5173', 'http://localhost:3000', 'http://127.0.0.1:3000'];
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'https://boutique-management-lac.vercel.app'
+];
 app.use(cors({
   origin: (origin, callback) => {
     // allow requests with no origin (like mobile apps, curl)
