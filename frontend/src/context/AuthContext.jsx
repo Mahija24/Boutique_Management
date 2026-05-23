@@ -13,7 +13,11 @@ export const AuthProvider = ({ children }) => {
       try {
         const storedUser = localStorage.getItem('user');
         if (storedUser) {
-          setUser(JSON.parse(storedUser));
+          const parsedUser = JSON.parse(storedUser);
+          setUser(parsedUser);
+          if (parsedUser?.token) {
+            localStorage.setItem('token', parsedUser.token);
+          }
         }
       } catch (error) {
         console.error('Session expired or invalid', error);
@@ -27,6 +31,9 @@ export const AuthProvider = ({ children }) => {
   const login = async (payload) => {
     try {
       const { data } = await api.post('/auth/login', payload);
+      if (data?.token) {
+        localStorage.setItem('token', data.token);
+      }
       setUser(data);
       localStorage.setItem('user', JSON.stringify(data));
       return data;
@@ -40,7 +47,10 @@ export const AuthProvider = ({ children }) => {
     try {
       const { data: registerRes } = await api.post('/auth/register', { name, email, password, role });
       const loginPayload = role === 'Staff' ? { phone: email, role: 'Staff' } : { email, password, role: 'Owner' };
-      await login(loginPayload);
+      const loginData = await login(loginPayload);
+      if (loginData?.token) {
+        localStorage.setItem('token', loginData.token);
+      }
       return registerRes;
     } catch (error) {
       console.error('Register error:', error);
@@ -57,6 +67,7 @@ export const AuthProvider = ({ children }) => {
     }
     setUser(null);
     localStorage.removeItem('user');
+    localStorage.removeItem('token');
     window.location.href = '/login';
   };
 
