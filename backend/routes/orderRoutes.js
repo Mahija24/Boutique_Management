@@ -204,6 +204,12 @@ const generateSchedule = async (
 // Create a new order
 router.post("/", protect, async (req, res) => {
   try {
+    if (!req.body.customer || req.body.customer === "") {
+      return res
+        .status(400)
+        .json({ message: "A valid customer ID is required to create an order." });
+    }
+
     const orderId = await generateOrderId();
     const orderDate = req.body.orderDate || Date.now();
     let schedule = req.body.schedule;
@@ -285,6 +291,12 @@ router.put("/:id", protect, async (req, res) => {
     const existingOrder = await Order.findById(req.params.id);
     if (!existingOrder)
       return res.status(404).json({ message: "Order not found" });
+
+    if (req.body.customer === "") {
+      return res
+        .status(400)
+        .json({ message: "A valid customer ID is required to update an order." });
+    }
 
     if (req.body.schedule) {
       const normalizedSchedule = normalizeManualSchedule(

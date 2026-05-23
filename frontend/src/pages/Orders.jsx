@@ -48,6 +48,7 @@ const Orders = () => {
     customer: "",
     customerName: "",
     customerPhone: "",
+    address: "",
     dressType: "",
     fabricDetails: "",
     deliveryDate: "",
@@ -118,9 +119,27 @@ const Orders = () => {
         },
       };
 
-      // Basic fallback since we allow raw name/phone entry in step 1 UI
-      if (!payload.customer && customers.length > 0) {
-        payload.customer = customers[0]._id; // fallback for mocked step 1
+      if (!payload.customer) {
+        const matchedCustomer = customers.find(
+          (cust) =>
+            cust.phone === formData.customerPhone ||
+            cust.name?.toLowerCase() === formData.customerName.trim().toLowerCase(),
+        );
+
+        if (matchedCustomer) {
+          payload.customer = matchedCustomer._id;
+        } else {
+          const customerPayload = {
+            name: formData.customerName,
+            phone: formData.customerPhone,
+            address: formData.address || undefined,
+          };
+          const { data: createdCustomer } = await api.post(
+            "/customers",
+            customerPayload,
+          );
+          payload.customer = createdCustomer._id;
+        }
       }
 
       if (!payload.assignedStaff) delete payload.assignedStaff;
@@ -1032,11 +1051,14 @@ const Orders = () => {
                         />
                       </div>
 
-                      <div>
+                                      <div>
                         <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
                           Address
                         </label>
                         <textarea
+                          name="address"
+                          value={formData.address}
+                          onChange={handleInputChange}
                           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow min-h-[80px]"
                           placeholder="Client address..."
                         />
