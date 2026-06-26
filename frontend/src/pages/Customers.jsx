@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import api from '../api/axios';
 import { Search, Plus, X, Edit, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -12,42 +12,57 @@ const Customers = () => {
   
   const initialForm = {
     name: '', phone: '', address: '', notes: '',
-    importantDates: [],
-    measurements: {
-      chest: '', waist: '', hip: '', length: '', shoulder: '', sleeves: '', neck: ''
-    }
+    importantDates: []
   };
   const [formData, setFormData] = useState(initialForm);
 
-  const fetchCustomers = async () => {
+  const fetchCustomers = useCallback(async () => {
     try {
       const { data } = await api.get(`/customers?search=${search}`);
       setCustomers(data);
     } catch (error) {
       console.error('Failed to fetch customers', error);
     }
-  };
+  }, [search]);
 
   useEffect(() => {
-    fetchCustomers();
-  }, [search]);
+    const init = async () => {
+      await fetchCustomers();
+    };
+    init();
+  }, [fetchCustomers]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    if (['chest', 'waist', 'hip', 'length', 'shoulder', 'sleeves', 'neck'].includes(name)) {
-      setFormData({ ...formData, measurements: { ...formData.measurements, [name]: value } });
-    } else {
-      setFormData({ ...formData, [name]: value });
-    }
+    setFormData({ ...formData, [name]: value });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
       if (editingCustomer) {
-        await api.put(`/customers/${editingCustomer._id}`, formData);
+        const cleanedData = {
+  ...formData,
+
+  importantDates: formData.importantDates.filter(
+    (d) => d.eventName && d.date
+  ),
+};
+
+await api.put(
+  `/customers/${editingCustomer._id}`,
+  cleanedData
+);
       } else {
-        await api.post('/customers', formData);
+        const cleanedData = {
+  ...formData,
+
+  importantDates: formData.importantDates.filter(
+    (d) => d.eventName && d.date
+  ),
+};
+
+await api.post('/customers', cleanedData);
       }
       setIsModalOpen(false);
       setEditingCustomer(null);
@@ -66,7 +81,6 @@ const Customers = () => {
       address: customer.address || '',
       notes: customer.notes || '',
       importantDates: customer.importantDates ? customer.importantDates.map(d => ({...d, date: new Date(d.date).toISOString().split('T')[0]})) : [],
-      measurements: customer.measurements || initialForm.measurements
     });
     setIsModalOpen(true);
   };
@@ -87,7 +101,7 @@ const Customers = () => {
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Customers</h1>
-          <p className="text-sm text-gray-500">Manage your clients and measurements</p>
+          <p className="text-sm text-gray-500">Manage your clients with important dates and notes.</p>
         </div>
         <button 
           onClick={() => { setEditingCustomer(null); setFormData(initialForm); setIsModalOpen(true); }}
@@ -230,18 +244,6 @@ const Customers = () => {
                   {formData.importantDates.length === 0 && (
                     <p className="text-xs text-gray-400 italic">No important dates added.</p>
                   )}
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold text-gray-800 mb-3 border-b pb-2">Measurements (inch)</h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {['chest', 'waist', 'hip', 'length', 'shoulder', 'sleeves', 'neck'].map((field) => (
-                    <div key={field}>
-                      <label className="block text-xs font-medium text-gray-500 mb-1 capitalize">{field}</label>
-                      <input type="number" step="0.5" name={field} value={formData.measurements[field] || ''} onChange={handleInputChange} className="w-full border border-gray-200 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-[#C4B5FD] transition-all bg-gray-50 focus:bg-white text-sm" />
-                    </div>
-                  ))}
                 </div>
               </div>
 

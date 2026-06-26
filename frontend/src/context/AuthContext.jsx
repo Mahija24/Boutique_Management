@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useEffect } from 'react';
 import api from '../api/axios';
 
@@ -8,16 +9,57 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check if user is logged in
     const checkUser = async () => {
       try {
         const storedUser = localStorage.getItem('user');
+        const storedToken = localStorage.getItem('token');
+        let parsedUser = null;
+
         if (storedUser) {
-          const parsedUser = JSON.parse(storedUser);
-          setUser(parsedUser);
-          if (parsedUser?.token) {
-            localStorage.setItem('token', parsedUser.token);
+          try {
+            parsedUser = JSON.parse(storedUser);
+            if (parsedUser && typeof parsedUser === 'object') {
+              if (!parsedUser.token && storedToken) {
+                parsedUser.token = storedToken;
+                localStorage.setItem('user', JSON.stringify(parsedUser));
+              }
+              setUser(parsedUser);
+              if (parsedUser?.token) {
+                localStorage.setItem('token', parsedUser.token);
+              }
+            } else {
+              throw new Error('Invalid stored user');
+            }
+          } catch (parseError) {
+            console.warn('Invalid stored user data, clearing cache', parseError);
+            localStorage.removeItem('user');
+            parsedUser = null;
           }
+        }
+
+        try {
+          const { data } = await api.get('/auth/profile');
+          if (data) {
+            const profileUser = {
+              ...data,
+              token: storedToken || parsedUser?.token || localStorage.getItem('token'),
+            };
+            if (profileUser.token) {
+              localStorage.setItem('token', profileUser.token);
+            }
+            setUser(profileUser);
+            localStorage.setItem('user', JSON.stringify(profileUser));
+          }
+        } catch (profileErr) {
+          console.warn('Session invalid, clearing auth state', profileErr);
+          localStorage.removeItem('user');
+          localStorage.removeItem('token');
+          try {
+            await api.post('/auth/logout');
+          } catch {
+            // ignore logout failure
+          }
+          setUser(null);
         }
       } catch (error) {
         console.error('Session expired or invalid', error);
@@ -30,6 +72,27 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (payload) => {
     try {
+      if (payload.role === 'Staff') {
+        const { data } = await api.post('/staff/login', {
+          name: payload.name,
+          mobile: payload.phone,
+        });
+
+        if (data.status === 'pending' || data.status === 'rejected') {
+          throw new Error(data.message);
+        }
+
+        if (data?.token) {
+          localStorage.setItem('token', data.token);
+        }
+        const staffUser = data.user
+          ? { ...data.user, token: data.token }
+          : { ...data, token: data.token };
+        setUser(staffUser);
+        localStorage.setItem('user', JSON.stringify(staffUser));
+        return staffUser;
+      }
+
       const { data } = await api.post('/auth/login', payload);
       if (data?.token) {
         localStorage.setItem('token', data.token);
@@ -43,14 +106,22 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const register = async (name, email, password, role) => {
+  const register = async (payload) => {
     try {
-      const { data: registerRes } = await api.post('/auth/register', { name, email, password, role });
-      const loginPayload = role === 'Staff' ? { phone: email, role: 'Staff' } : { email, password, role: 'Owner' };
-      const loginData = await login(loginPayload);
-      if (loginData?.token) {
-        localStorage.setItem('token', loginData.token);
+      if (payload.role === 'Staff') {
+        const { data } = await api.post('/auth/request-login', {
+          name: payload.name,
+          phone: payload.phone,
+        });
+        return data;
       }
+      const { data: registerRes } = await api.post('/auth/register', payload);
+      const loginPayload = {
+        email: payload.email,
+        password: payload.password,
+        role: 'Owner',
+      };
+      await login(loginPayload);
       return registerRes;
     } catch (error) {
       console.error('Register error:', error);
@@ -63,7 +134,6 @@ export const AuthProvider = ({ children }) => {
       await api.post('/auth/logout');
     } catch (error) {
       console.error('Logout error:', error);
-      // proceed to clear client state anyway
     }
     setUser(null);
     localStorage.removeItem('user');
@@ -72,8 +142,8 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, register, logout, loading }}>
-      {!loading && children}
+    <AuthContext.Provider value={{ user, setUser, login, register, logout, loading }}>
+      {children}
     </AuthContext.Provider>
   );
 };

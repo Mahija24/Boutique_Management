@@ -52,4 +52,20 @@ router.get("/order/:orderId", protect, async (req, res) => {
   }
 });
 
+// Get all successful payments (Owner only)
+router.get("/", protect, ownerOnly, async (req, res) => {
+  try {
+    const payments = await Payment.find({ status: { $regex: /^success$/i } })
+      .populate({
+        path: "order",
+        populate: { path: "customer", select: "name phone" },
+      })
+      .populate("recordedBy", "name")
+      .sort({ createdAt: -1 });
+    res.json(payments);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 export default router;

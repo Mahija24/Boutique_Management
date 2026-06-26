@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import api from "../api/axios";
 import {
   Calendar as CalendarIcon,
@@ -29,7 +29,7 @@ const CalendarSystem = () => {
     return new Date(date).toISOString().split("T")[0];
   };
 
-  const getUpcomingRedAlerts = (eventList) => {
+  const getUpcomingRedAlerts = useCallback((eventList) => {
     const today = new Date();
     const endDate = new Date(today);
     endDate.setDate(endDate.getDate() + 7);
@@ -42,9 +42,9 @@ const CalendarSystem = () => {
         eventDate <= endDate
       );
     });
-  };
+  }, []);
 
-  const ensureCommonEvents = async (eventList) => {
+  const ensureCommonEvents = useCallback(async (eventList) => {
     if (!user || commonEventsLoaded) return;
     const now = new Date();
     const month = now.getMonth();
@@ -94,22 +94,22 @@ const CalendarSystem = () => {
     } finally {
       setCommonEventsLoaded(true);
     }
-  };
-
-  const fetchEvents = async () => {
-    try {
-      const { data } = await api.get("/calendar");
-      setEvents(data);
-      setUpcomingRedAlerts(getUpcomingRedAlerts(data));
-      await ensureCommonEvents(data);
-    } catch (error) {
-      console.error("Failed to fetch calendar events", error);
-    }
-  };
+  }, [user, commonEventsLoaded]);
 
   useEffect(() => {
-    if (user?.role === "Owner") fetchEvents();
-  }, [user]);
+    const init = async () => {
+      if (user?.role !== "Owner") return;
+      try {
+        const { data } = await api.get("/calendar");
+        setEvents(data);
+        setUpcomingRedAlerts(getUpcomingRedAlerts(data));
+        await ensureCommonEvents(data);
+      } catch (error) {
+        console.error("Failed to fetch calendar events", error);
+      }
+    };
+    init();
+  }, [user, getUpcomingRedAlerts, ensureCommonEvents]);
 
   const toggleFilter = (key) => {
     setFilters({ ...filters, [key]: !filters[key] });

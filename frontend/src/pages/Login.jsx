@@ -12,31 +12,61 @@ const Login = () => {
   const [role, setRole] = useState('Owner');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
   const [loading, setLoading] = useState(false);
-  
+
   const { login, register } = useAuth();
   const navigate = useNavigate();
+
+  const clearMessages = () => {
+    setError('');
+    setSuccessMessage('');
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setError('');
+    clearMessages();
+
     try {
       if (isLogin) {
         if (role === 'Staff') {
-          await login({ phone, role: 'Staff' });
+          if (!name || !phone) {
+            setError('Please enter your full name and phone number');
+            setLoading(false);
+            return;
+          }
+          await login({ name, phone, role: 'Staff' });
         } else {
+          if (!email || !password) {
+            setError('Please enter email and password');
+            setLoading(false);
+            return;
+          }
           await login({ email, password, role: 'Owner' });
         }
+        navigate('/');
       } else {
-        if (!name || !email || !password) {
-          setError('Please fill in all required fields');
-          setLoading(false);
-          return;
+        if (role === 'Staff') {
+          if (!name || !phone) {
+            setError('Please enter your full name and phone number');
+            setLoading(false);
+            return;
+          }
+          await register({ name, phone, role: 'Staff' });
+          setSuccessMessage(
+            'Login request submitted. Please wait for admin approval before signing in.',
+          );
+        } else {
+          if (!name || !email || !password) {
+            setError('Please fill in all required fields');
+            setLoading(false);
+            return;
+          }
+          await register({ name, email, password, role: 'Owner' });
+          navigate('/');
         }
-        await register(name, email, password, role);
       }
-      navigate('/');
     } catch (err) {
       const message = err.response?.data?.message || err.message || 'Authentication failed. Please try again.';
       setError(message);
@@ -48,7 +78,6 @@ const Login = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#7C3AED] via-[#9F67FF] to-[#F472B6] flex items-center justify-center p-4 relative overflow-hidden">
-      {/* Decorative background shapes */}
       <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-white opacity-10 rounded-full blur-3xl"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-[30rem] h-[30rem] bg-[#C4B5FD] opacity-20 rounded-full blur-3xl"></div>
 
@@ -66,22 +95,45 @@ const Login = () => {
             <span className="block sm:inline">{error}</span>
           </div>
         )}
+        {successMessage && (
+          <div className="bg-emerald-500/20 border border-emerald-500/50 text-white px-4 py-3 rounded-xl shadow-inner mb-6 text-sm flex items-center backdrop-blur-md">
+            <span className="block sm:inline">{successMessage}</span>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {!isLogin && (
-            <>
-              {/* Role Selection */}
-              <div className="flex gap-4 mb-2">
-                <label className={`flex-1 flex justify-center cursor-pointer py-2 rounded-xl border transition-all ${role === 'Owner' ? 'bg-[#7C3AED] border-[#7C3AED] text-white shadow-md' : 'bg-white/5 border-white/20 text-white/70 hover:bg-white/10'}`}>
-                  <input type="radio" name="role" value="Owner" className="hidden" onChange={(e) => setRole(e.target.value)} checked={role === 'Owner'} />
-                  <span className="font-medium text-sm">Owner Account</span>
-                </label>
-                <label className={`flex-1 flex justify-center cursor-pointer py-2 rounded-xl border transition-all ${role === 'Staff' ? 'bg-[#F472B6] border-[#F472B6] text-white shadow-md' : 'bg-white/5 border-white/20 text-white/70 hover:bg-white/10'}`}>
-                  <input type="radio" name="role" value="Staff" className="hidden" onChange={(e) => setRole(e.target.value)} checked={role === 'Staff'} />
-                  <span className="font-medium text-sm">Staff Account</span>
-                </label>
-              </div>
+          <div className="flex gap-4 mb-2">
+            <label className={`flex-1 flex justify-center cursor-pointer py-2 rounded-xl border transition-all ${role === 'Owner' ? 'bg-[#7C3AED] border-[#7C3AED] text-white shadow-md' : 'bg-white/5 border-white/20 text-white/70 hover:bg-white/10'}`}>
+              <input type="radio" name="role" value="Owner" className="hidden" onChange={(e) => setRole(e.target.value)} checked={role === 'Owner'} />
+              <span className="font-medium text-sm">Owner</span>
+            </label>
+            <label className={`flex-1 flex justify-center cursor-pointer py-2 rounded-xl border transition-all ${role === 'Staff' ? 'bg-[#F472B6] border-[#F472B6] text-white shadow-md' : 'bg-white/5 border-white/20 text-white/70 hover:bg-white/10'}`}>
+              <input type="radio" name="role" value="Staff" className="hidden" onChange={(e) => setRole(e.target.value)} checked={role === 'Staff'} />
+              <span className="font-medium text-sm">Staff</span>
+            </label>
+          </div>
 
+          {role === 'Owner' && !isLogin && (
+            <div className="space-y-1">
+              <label className="text-white/90 text-sm font-medium ml-1">Full Name</label>
+              <div className="relative group">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <User className="h-5 w-5 text-white/50 group-focus-within:text-white transition-colors" />
+                </div>
+                <input
+                  type="text"
+                  required
+                  className="w-full bg-white/5 border border-white/10 text-white placeholder-white/40 rounded-xl py-3 pl-11 pr-4 focus:outline-none focus:ring-2 focus:ring-[#C4B5FD] focus:bg-white/10 transition-all font-medium"
+                  placeholder="Jane Doe"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+
+          {role === 'Staff' && (
+            <>
               <div className="space-y-1">
                 <label className="text-white/90 text-sm font-medium ml-1">Full Name</label>
                 <div className="relative group">
@@ -90,7 +142,7 @@ const Login = () => {
                   </div>
                   <input
                     type="text"
-                    required={!isLogin}
+                    required
                     className="w-full bg-white/5 border border-white/10 text-white placeholder-white/40 rounded-xl py-3 pl-11 pr-4 focus:outline-none focus:ring-2 focus:ring-[#C4B5FD] focus:bg-white/10 transition-all font-medium"
                     placeholder="Jane Doe"
                     value={name}
@@ -98,23 +150,27 @@ const Login = () => {
                   />
                 </div>
               </div>
+
+              <div className="space-y-1">
+                <label className="text-white/90 text-sm font-medium ml-1">Phone Number</label>
+                <div className="relative group">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <User className="h-5 w-5 text-white/50 group-focus-within:text-white transition-colors" />
+                  </div>
+                  <input
+                    type="text"
+                    required
+                    className="w-full bg-white/5 border border-white/10 text-white placeholder-white/40 rounded-xl py-3 pl-11 pr-4 focus:outline-none focus:ring-2 focus:ring-[#C4B5FD] focus:bg-white/10 transition-all font-medium"
+                    placeholder="Enter staff phone number"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                  />
+                </div>
+              </div>
             </>
           )}
 
-          {isLogin && (
-            <div className="flex gap-4 mb-2">
-              <label className={`flex-1 flex justify-center cursor-pointer py-2 rounded-xl border transition-all ${role === 'Owner' ? 'bg-[#7C3AED] border-[#7C3AED] text-white shadow-md' : 'bg-white/5 border-white/20 text-white/70 hover:bg-white/10'}`}>
-                <input type="radio" name="role" value="Owner" className="hidden" onChange={(e) => setRole(e.target.value)} checked={role === 'Owner'} />
-                <span className="font-medium text-sm">Owner</span>
-              </label>
-              <label className={`flex-1 flex justify-center cursor-pointer py-2 rounded-xl border transition-all ${role === 'Staff' ? 'bg-[#F472B6] border-[#F472B6] text-white shadow-md' : 'bg-white/5 border-white/20 text-white/70 hover:bg-white/10'}`}>
-                <input type="radio" name="role" value="Staff" className="hidden" onChange={(e) => setRole(e.target.value)} checked={role === 'Staff'} />
-                <span className="font-medium text-sm">Staff Login</span>
-              </label>
-            </div>
-          )}
-
-          {(!isLogin || role === 'Owner') && (
+          {role === 'Owner' && (
             <>
               <div className="space-y-1">
                 <label className="text-white/90 text-sm font-medium ml-1">Email Address</label>
@@ -140,7 +196,7 @@ const Login = () => {
                     <Lock className="h-5 w-5 text-white/50 group-focus-within:text-white transition-colors" />
                   </div>
                   <input
-                    type={showPassword ? "text" : "password"}
+                    type={showPassword ? 'text' : 'password'}
                     required
                     className="w-full bg-white/5 border border-white/10 text-white placeholder-white/40 rounded-xl py-3 pl-11 pr-12 focus:outline-none focus:ring-2 focus:ring-[#C4B5FD] focus:bg-white/10 transition-all font-medium"
                     placeholder="••••••••"
@@ -159,25 +215,6 @@ const Login = () => {
             </>
           )}
 
-          {(isLogin && role === 'Staff') && (
-              <div className="space-y-1">
-                <label className="text-white/90 text-sm font-medium ml-1">Phone Number</label>
-                <div className="relative group">
-                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                    <User className="h-5 w-5 text-white/50 group-focus-within:text-white transition-colors" />
-                  </div>
-                  <input
-                    type="text"
-                    required
-                    className="w-full bg-white/5 border border-white/10 text-white placeholder-white/40 rounded-xl py-3 pl-11 pr-4 focus:outline-none focus:ring-2 focus:ring-[#C4B5FD] focus:bg-white/10 transition-all font-medium"
-                    placeholder="Enter registered phone number"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                  />
-                </div>
-              </div>
-          )}
-
           <button
             type="submit"
             disabled={loading}
@@ -186,18 +223,23 @@ const Login = () => {
             {loading ? (
               <Loader2 className="w-5 h-5 animate-spin text-[#7C3AED]" />
             ) : (
-              isLogin ? 'Sign In' : 'Create Account'
+              isLogin ? 'Sign In' : role === 'Staff' ? 'Request Access' : 'Create Account'
             )}
           </button>
         </form>
-        
+
         <div className="mt-6 text-center">
-          <button 
-            type="button" 
-            onClick={() => { setIsLogin(!isLogin); setError(''); }} 
+          <button
+            type="button"
+            onClick={() => {
+              setIsLogin(!isLogin);
+              clearMessages();
+            }}
             className="text-white/80 hover:text-white text-sm font-medium transition-colors"
           >
-            {isLogin ? "New to BoutiquePro? Create an account" : "Already have an account? Sign In"}
+            {isLogin
+              ? 'New to BoutiquePro? Request access or create an account'
+              : 'Already have an account? Sign In'}
           </button>
         </div>
 

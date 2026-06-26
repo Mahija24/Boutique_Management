@@ -32,12 +32,15 @@ const Layout = () => {
     { name: 'Dashboard', icon: LayoutDashboard, path: '/' },
     { name: 'Orders', icon: ShoppingBag, path: '/orders' },
     { name: 'Tasks', icon: ListTodo, path: '/workflow' },
+    { name: 'Task Analyzer', icon: CalendarCheck, path: '/task-analyzer' },
     { name: 'CRM', icon: Users, path: '/customers' },
+    { name: 'Appointments', icon: Calendar, path: '/appointments' },
     { name: 'Calendar', icon: Calendar, path: '/calendar' },
   ];
 
   if (user?.role === 'Owner') {
     navItems.push({ name: 'Employees', icon: UserCircle, path: '/staff' });
+    navItems.push({ name: 'Gallery', icon: ImageIcon, path: '/gallery' });
   }
 
   return (

@@ -26,6 +26,7 @@ const Staff = () => {
     phone: "",
     address: "",
     staffRoles: [],
+    otherRoleInput: "",
     salary: { type: "Per Month", amount: "" },
     notes: "",
     overtimeEnabled: true,
@@ -58,11 +59,28 @@ const Staff = () => {
   };
 
   useEffect(() => {
-    if (user?.role === "Owner") {
-      fetchStaff();
-      fetchAttendance();
-    }
+    const init = async () => {
+      if (user?.role === "Owner") {
+        await fetchStaff();
+        await fetchAttendance();
+      }
+    };
+    init();
   }, [user]);
+
+  const markAttendance = async (staffId, type) => {
+    try {
+      if (type === "in") {
+        await api.post(`/staff/${staffId}/attendance/in`);
+      } else {
+        await api.post(`/staff/${staffId}/attendance/out`);
+      }
+      alert(`Checked ${type === "in" ? "IN" : "OUT"} successfully!`);
+      fetchAttendance();
+    } catch (error) {
+      alert(error.response?.data?.message || `Error checking ${type === "in" ? "in" : "out"}`);
+    }
+  };
 
   const handleInputChange = (e) => {
     if (e.target.name === "salaryType") {
@@ -75,6 +93,8 @@ const Staff = () => {
         ...formData,
         salary: { ...formData.salary, amount: e.target.value },
       });
+    } else if (e.target.name === "otherRoleInput") {
+      setFormData({ ...formData, otherRoleInput: e.target.value });
     } else {
       setFormData({ ...formData, [e.target.name]: e.target.value });
     }
@@ -82,6 +102,19 @@ const Staff = () => {
 
   const toggleRole = (role) => {
     const current = formData.staffRoles;
+    if (role === "Other") {
+      if (current.includes("Other")) {
+        setFormData({
+          ...formData,
+          staffRoles: current.filter((r) => r !== "Other"),
+          otherRoleInput: "",
+        });
+      } else {
+        setFormData({ ...formData, staffRoles: [...current, "Other"] });
+      }
+      return;
+    }
+
     if (current.includes(role)) {
       setFormData({
         ...formData,
@@ -89,6 +122,21 @@ const Staff = () => {
       });
     } else {
       setFormData({ ...formData, staffRoles: [...current, role] });
+    }
+  };
+
+  const addCustomRole = () => {
+    const role = formData.otherRoleInput.trim();
+    if (!role) return;
+    const current = formData.staffRoles.filter((r) => r !== "Other");
+    if (!current.includes(role)) {
+      setFormData({
+        ...formData,
+        staffRoles: [...current, role],
+        otherRoleInput: "",
+      });
+    } else {
+      setFormData({ ...formData, otherRoleInput: "" });
     }
   };
 
@@ -114,7 +162,7 @@ const Staff = () => {
       try {
         await api.delete(`/staff/${id}`);
         fetchStaff();
-      } catch (error) {
+      } catch {
         alert("Failed to delete staff");
       }
     }
@@ -147,7 +195,7 @@ const Staff = () => {
       });
       alert(`Overtime ${approved ? "approved" : "rejected"}`);
       fetchAttendance();
-    } catch (error) {
+    } catch {
       alert("Error updating overtime status");
     }
   };
@@ -201,7 +249,7 @@ const Staff = () => {
           nextPaymentDate = new Date(); // Daily - payment due today
           nextPaymentDate.setDate(nextPaymentDate.getDate() + 1);
           break;
-        case "Per Week":
+        case "Per Week": {
           const weeksWorked = daysWorked / 7;
           baseSalary = weeksWorked * rate;
           overtimePay = overtimeHours * (rate / (staff.workingHours * 7)); // hourly rate
@@ -213,7 +261,8 @@ const Staff = () => {
             nextPaymentDate.getDate() + (daysUntilFriday || 7),
           );
           break;
-        case "Per 15 Days":
+        }
+        case "Per 15 Days": {
           const periodsWorked = daysWorked / 15;
           baseSalary = periodsWorked * rate;
           overtimePay = overtimeHours * (rate / (staff.workingHours * 15)); // hourly rate
@@ -224,7 +273,8 @@ const Staff = () => {
             nextPaymentDate = new Date(currentYear, currentMonth + 1, 15);
           }
           break;
-        case "Per Month":
+        }
+        case "Per Month": {
           // For monthly salary, prorate based on days worked
           const daysInMonth = new Date(
             currentYear,
@@ -237,6 +287,7 @@ const Staff = () => {
           salaryCycleDays = daysInMonth;
           nextPaymentDate = new Date(currentYear, currentMonth + 1, 1);
           break;
+        }
         default:
           baseSalary = 0;
       }
@@ -285,7 +336,13 @@ const Staff = () => {
     );
   }
 
-  const roleOptions = ["Cutting", "Stitching", "Finishing", "General Staff"];
+  const roleOptions = [
+    "Cutting",
+    "Stitching",
+    "Finishing",
+    "General Staff",
+    "Other",
+  ];
   const tabs = ["Directory", "Attendance", "Salary"];
 
   return (
@@ -420,7 +477,7 @@ const Staff = () => {
                     await api.post("/staff/attendance/check-incomplete");
                     alert("Incomplete attendance checked and flagged");
                     fetchAttendance();
-                  } catch (error) {
+                  } catch {
                     alert("Error checking incomplete attendance");
                   }
                 }}
@@ -610,7 +667,8 @@ const Staff = () => {
                           {s.name}
                         </h3>
                         <p className="text-xs text-gray-400 font-medium tracking-wide">
-                          ₹{s.salary?.amount} / {s.salary?.type.replace("Per ", "")}
+                          ₹{s.salary?.amount} /{" "}
+                          {s.salary?.type.replace("Per ", "")}
                         </p>
                       </div>
                       <button className="bg-purple-50 p-2 rounded-full text-purple-600 hover:bg-purple-100">
@@ -672,7 +730,10 @@ const Staff = () => {
                         <span
                           className={`font-black ${salaryData.remainingBalance > 0 ? "text-red-500" : "text-green-500"}`}
                         >
-                          ₹{Math.abs(salaryData.remainingBalance).toLocaleString()}
+                          ₹
+                          {Math.abs(
+                            salaryData.remainingBalance,
+                          ).toLocaleString()}
                         </span>
                       </div>
                       {salaryData.amountPaid > 0 && (
@@ -693,47 +754,55 @@ const Staff = () => {
                       )}
                     </div>
 
-                    {s.salaryPaymentHistory && s.salaryPaymentHistory.length > 0 && (
-                      <div className="mb-4">
-                        <h4 className="text-sm font-bold text-gray-700 mb-2">
-                          Recent Payments
-                        </h4>
-                        <div className="space-y-1 max-h-20 overflow-y-auto">
-                          {s.salaryPaymentHistory
-                            .slice(-3)
-                            .reverse()
-                            .map((payment, index) => (
-                              <div
-                                key={index}
-                                className="flex justify-between text-xs bg-gray-50 p-2 rounded"
-                              >
-                                <span className="text-gray-600">
-                                  {new Date(payment.date).toLocaleDateString()} ({payment.month})
-                                </span>
-                                <span className="font-bold text-green-600">
-                                  ₹{payment.amount.toLocaleString()}
-                                </span>
-                              </div>
-                            ))}
+                    {s.salaryPaymentHistory &&
+                      s.salaryPaymentHistory.length > 0 && (
+                        <div className="mb-4">
+                          <h4 className="text-sm font-bold text-gray-700 mb-2">
+                            Recent Payments
+                          </h4>
+                          <div className="space-y-1 max-h-20 overflow-y-auto">
+                            {s.salaryPaymentHistory
+                              .slice(-3)
+                              .reverse()
+                              .map((payment, index) => (
+                                <div
+                                  key={index}
+                                  className="flex justify-between text-xs bg-gray-50 p-2 rounded"
+                                >
+                                  <span className="text-gray-600">
+                                    {new Date(
+                                      payment.date,
+                                    ).toLocaleDateString()}{" "}
+                                    ({payment.month})
+                                  </span>
+                                  <span className="font-bold text-green-600">
+                                    ₹{payment.amount.toLocaleString()}
+                                  </span>
+                                </div>
+                              ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
 
                     {salaryData.daysUntilDue >= 0 ? (
                       <div
                         className={`bg-${salaryData.daysUntilDue <= 3 ? "red" : "amber"}-50 border border-${salaryData.daysUntilDue <= 3 ? "red" : "amber"}-100 rounded-lg p-2 flex items-center gap-2 text-${salaryData.daysUntilDue <= 3 ? "red" : "amber"}-700 text-xs font-bold mb-4`}
                       >
-                        <Bell className="w-4 h-4" /> Payment due in {salaryData.daysUntilDue} days
+                        <Bell className="w-4 h-4" /> Payment due in{" "}
+                        {salaryData.daysUntilDue} days
                       </div>
                     ) : (
                       <div className="bg-red-50 border border-red-100 rounded-lg p-2 flex items-center gap-2 text-red-700 text-xs font-bold mb-4">
-                        <Bell className="w-4 h-4" /> Payment overdue by {Math.abs(salaryData.daysUntilDue)} days
+                        <Bell className="w-4 h-4" /> Payment overdue by{" "}
+                        {Math.abs(salaryData.daysUntilDue)} days
                       </div>
                     )}
 
                     <button
                       onClick={async () => {
-                        const amount = prompt("Enter salary payment amount (₹):");
+                        const amount = prompt(
+                          "Enter salary payment amount (₹):",
+                        );
                         if (amount && !isNaN(amount)) {
                           try {
                             await api.post(`/staff/${s._id}/salary/process`, {
@@ -833,6 +902,29 @@ const Staff = () => {
                       </button>
                     ))}
                   </div>
+                  {formData.staffRoles.includes("Other") && (
+                    <div className="mt-3 flex flex-col gap-2">
+                      <div className="flex items-center gap-2">
+                        <input
+                          name="otherRoleInput"
+                          value={formData.otherRoleInput}
+                          onChange={handleInputChange}
+                          placeholder="Enter custom role"
+                          className="w-full border border-gray-200 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#7C3AED]"
+                        />
+                        <button
+                          type="button"
+                          onClick={addCustomRole}
+                          className="bg-[#7C3AED] text-white rounded-xl px-4 py-3 text-sm font-semibold hover:bg-[#6c2bd9] transition-colors"
+                        >
+                          Add
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        Enter any role not listed in the default options.
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div>

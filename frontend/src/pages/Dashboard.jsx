@@ -30,6 +30,9 @@ import {
   X,
   UserCheck,
   Calendar,
+  Plus,
+  Trash2,
+  ImageIcon,
 } from "lucide-react";
 
 const Dashboard = () => {
@@ -46,6 +49,213 @@ const Dashboard = () => {
   const [editingBill, setEditingBill] = useState(false);
   const [rentValue, setRentValue] = useState(0);
   const [billValue, setBillValue] = useState(0);
+  const [detailModal, setDetailModal] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailDebugData, setDetailDebugData] = useState(null);
+  const [appointments, setAppointments] = useState([]);
+  const [employeeAvailability, setEmployeeAvailability] = useState([]);
+  const [gallery, setGallery] = useState([]);
+  const [showImageUploadModal, setShowImageUploadModal] = useState(false);
+  const [uploadImageName, setUploadImageName] = useState("");
+  const [uploadImageFile, setUploadImageFile] = useState(null);
+
+  const buildEmployeeAvailability = (staff) => {
+    const roleMap = {};
+    staff.forEach((member) => {
+      if (!member) return;
+      let roles = [];
+      if (Array.isArray(member.staffRoles)) {
+        roles = member.staffRoles.slice();
+      } else if (typeof member.staffRoles === "string") {
+        roles = [member.staffRoles];
+      }
+      if (roles.length === 0) roles = ["General Staff"];
+
+      roles.forEach((role) => {
+        const normalizedRole = role || "General Staff";
+        if (!roleMap[normalizedRole]) {
+          roleMap[normalizedRole] = {
+            name: normalizedRole,
+            value: 0,
+            staff: [],
+          };
+        }
+        roleMap[normalizedRole].value += 1;
+        roleMap[normalizedRole].staff.push(member.name || "Unknown");
+      });
+    });
+    return Object.values(roleMap).sort((a, b) => b.value - a.value);
+  };
+
+  const saveDashboardSettings = async (rentPending, billsPending) => {
+    try {
+      const { data } = await api.post("/dashboard/settings", {
+        rentPending,
+        billsPending,
+      });
+      setStats((prev) => ({
+        ...prev,
+        extraCards: {
+          ...prev?.extraCards,
+          rentPending: data.rentPending,
+          billsPending: data.billsPending,
+        },
+      }));
+      return true;
+    } catch (error) {
+      console.error("Failed to save dashboard settings", error);
+      alert(
+        error.response?.data?.message ||
+          "Failed to save rent/bill settings. Please try again.",
+      );
+      return false;
+    }
+  };
+
+  const openDetailModal = async (type) => {
+    setDetailModal(null);
+    setDetailDebugData(null);
+    setDetailLoading(true);
+    try {
+      const { data } = await api.get("/dashboard/debug");
+      setDetailDebugData(data);
+    } catch (error) {
+      console.error("Failed to fetch dashboard debug details", error);
+    } finally {
+      setDetailLoading(false);
+      setDetailModal(type);
+    }
+  };
+
+  const closeDetailModal = () => {
+    setDetailModal(null);
+    setDetailDebugData(null);
+  };
+
+  const formatCurrency = (value) =>
+    typeof value === "number" ? `₹${value.toLocaleString()}` : "₹0";
+
+  const getDetailModalTitle = () => {
+    switch (detailModal) {
+      case "revenue":
+        return "Payment Breakdown";
+      case "monthlyEarnings":
+        return "Monthly Revenue";
+      case "orderRevenue":
+        return "Order Revenue Details";
+      case "collected":
+        return "Collected Payments";
+      case "pending":
+        return "Pending Balances";
+      case "payout":
+        return "Employee Payout Estimate";
+      default:
+        return "Details";
+    }
+  };
+
+  const getAllPayments = () => {
+    const viewPayments = stats?.paymentDetails || [];
+    if (viewPayments.length > 0) return viewPayments;
+    if (!detailDebugData?.allPayments) return [];
+    return detailDebugData.allPayments
+      .filter((p) => /^success$/i.test(p.status))
+      .map((p) => ({
+        orderId: p.order?.orderId || "N/A",
+        customerName: p.order?.customer?.name || "Unknown",
+        amountPaid: p.amountPaid,
+        method: p.method,
+        recordedBy: p.recordedBy?.name || p.recordedBy || "System",
+        date: p.createdAt || p.date || new Date().toISOString(),
+        totalAmount: p.order?.pricing?.totalAmount || 0,
+        balance: p.order?.pricing?.balance || 0,
+      }));
+  };
+
+  const getMonthlyPayments = () => {
+    const monthlyDetails = stats?.monthlyRevenueDetails || [];
+    if (monthlyDetails.length > 0) return monthlyDetails;
+    
+    // Fallback: Calculate from all payments
+    const allPayments = getAllPayments();
+    if (allPayments.length === 0) return [];
+    
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    
+    const filtered = allPayments.filter((item) => {
+      const dt = new Date(item.date || item.createdAt);
+      return dt.getFullYear() === currentYear && dt.getMonth() === currentMonth;
+    });
+    
+    // If no payments this month, return summary instead
+    if (filtered.length === 0) {
+      const monthlyTotal = allPayments.reduce((sum, p) => sum + (p.amountPaid || 0), 0);
+      return allPayments.slice(0, 10).map((p) => ({
+        ...p,
+        isMonthlyView: true,
+        monthlyNote: `Total this month: ₹${monthlyTotal.toLocaleString()}`
+      }));
+    }
+    
+    return filtered;
+  };
+
+  const getDetailModalItems = () => {
+    if (!stats) return [];
+    const allPayments = getAllPayments();
+
+    if (detailModal === "revenue" || detailModal === "collected") {
+      return allPayments;
+    }
+
+    if (detailModal === "monthlyEarnings") {
+      return getMonthlyPayments();
+    }
+
+    if (detailModal === "orderRevenue") {
+      return (
+        stats.orderRevenueDetails ||
+        (detailDebugData?.allOrders || []).map((o) => ({
+          orderId: o.orderId,
+          customerName: o.customer?.name || "Unknown",
+          totalAmount: o.pricing?.totalAmount || 0,
+          advancePaid: o.pricing?.advancePaid || 0,
+          balance: o.pricing?.balance || 0,
+          collected: (o.pricing?.totalAmount || 0) - (o.pricing?.balance || 0),
+          status: o.status,
+          deliveryDate: o.deliveryDate,
+        }))
+      );
+    }
+
+    if (detailModal === "pending") {
+      const pendingItems = stats.pendingBalanceDetails || [];
+      if (pendingItems.length > 0) return pendingItems;
+      return (detailDebugData?.allOrders || [])
+        .filter((o) => (o.pricing?.balance || 0) > 0)
+        .map((o) => ({
+          orderId: o.orderId,
+          customerName: o.customer?.name || "Unknown",
+          amountDue: o.pricing?.balance || 0,
+          dueDays: Math.max(
+            0,
+            Math.ceil(
+              (new Date(o.deliveryDate) - new Date()) / (1000 * 60 * 60 * 24),
+            ),
+          ),
+          totalAmount: o.pricing?.totalAmount || 0,
+          advancePaid: o.pricing?.advancePaid || 0,
+        }));
+    }
+
+    if (detailModal === "payout") {
+      return stats.staffPayoutDetails || [];
+    }
+
+    return [];
+  };
 
   useEffect(() => {
     const fetchDashboard = async () => {
@@ -53,10 +263,20 @@ const Dashboard = () => {
         if (user?.role === "Owner") {
           const { data } = await api.get("/dashboard/stats");
           setStats(data);
+          setRentValue(data.extraCards?.rentPending || 0);
+          setBillValue(data.extraCards?.billsPending || 0);
+
+          try {
+            const apptRes = await api.get("/appointments");
+            setAppointments(apptRes.data || []);
+          } catch (error) {
+            console.error("Failed to fetch appointments", error);
+          }
 
           // Fetch attendance stats
           const attendanceRes = await api.get("/staff");
           const staffList = attendanceRes.data;
+          setEmployeeAvailability(buildEmployeeAvailability(staffList));
           const today = new Date().setHours(0, 0, 0, 0);
 
           let present = 0,
@@ -127,28 +347,75 @@ const Dashboard = () => {
     );
   }
 
-  // Employee Availability Mock Data
-  const employeeData = [
-    { name: "Designer", value: 5, staff: ["Alice", "Bob"] },
-    { name: "Cutting", value: 45, staff: ["Charlie", "Dave", "Eve"] },
-    {
-      name: "Stitching",
-      value: 65,
-      staff: ["Frank", "Grace", "Heidi", "Ivan"],
-    },
-    { name: "Finishing", value: 75, staff: ["Judy", "Mallory"] },
-    { name: "General Staff", value: 20, staff: ["Niaj", "Olivia"] },
-  ];
+  const employeeData =
+    employeeAvailability.length > 0
+      ? employeeAvailability
+      : [{ name: "No employees", value: 0, staff: [] }];
+
+  const handleImageUpload = async () => {
+    if (!uploadImageFile || !uploadImageName.trim()) {
+      alert("Please provide both a name and an image file");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const newImage = {
+        id: `img-${Date.now()}`,
+        name: uploadImageName,
+        dataUrl: reader.result,
+        uploadedAt: new Date().toISOString(),
+      };
+      setGallery([...gallery, newImage]);
+      setUploadImageName("");
+      setUploadImageFile(null);
+      setShowImageUploadModal(false);
+      alert("Image added to gallery!");
+    };
+    reader.readAsDataURL(uploadImageFile);
+  };
 
   const handleRoleClick = (roleData) => {
     setSelectedRole(roleData);
     setShowEmployeePopup(true);
   };
 
-  const formatCurrency = (value) =>
-    typeof value === "number"
-      ? `₹${value.toLocaleString()}`
-      : "₹0";
+  const cashVsOnline = stats?.cashVsOnline || {
+    Cash: stats?.paymentMethods?.Cash || 0,
+    Online:
+      (stats?.paymentMethods?.UPI || 0) +
+      (stats?.paymentMethods?.Online || 0),
+  };
+
+  const paymentMethodData = Object.entries(stats?.paymentMethods || {}).map(
+    ([name, value]) => ({
+      name,
+      value,
+      color:
+        name === "Cash"
+          ? "#10b981"
+          : name === "UPI"
+            ? "#3b82f6"
+            : name === "Card"
+              ? "#f59e0b"
+              : "#8b5cf6",
+    }),
+  );
+
+  const totalPaymentMethodAmount = paymentMethodData.reduce(
+    (sum, method) => sum + method.value,
+    0,
+  );
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const upcomingAppointments = appointments
+    .filter((appointment) => {
+      const appointmentDate = new Date(appointment.date);
+      return appointmentDate >= today;
+    })
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+  const nextAppointments = upcomingAppointments.slice(0, 3);
 
   const getRevenueChartData = () => {
     const graph = stats?.graphs?.revenueGraph;
@@ -163,7 +430,12 @@ const Dashboard = () => {
         { name: "Sun", paid: 0, balance: 0 },
       ];
     }
-    const key = revenueView === "Daily" ? "daily" : revenueView === "Monthly" ? "monthly" : "yearly";
+    const key =
+      revenueView === "Daily"
+        ? "daily"
+        : revenueView === "Monthly"
+          ? "monthly"
+          : "yearly";
     return graph[key] || [];
   };
 
@@ -180,7 +452,12 @@ const Dashboard = () => {
         { name: "Sun", orders: 0 },
       ];
     }
-    const key = orderView === "Weekly" ? "weekly" : orderView === "Monthly" ? "monthly" : "yearly";
+    const key =
+      orderView === "Weekly"
+        ? "weekly"
+        : orderView === "Monthly"
+          ? "monthly"
+          : "yearly";
     return graph[key] || [];
   };
 
@@ -206,17 +483,12 @@ const Dashboard = () => {
       today.setHours(0, 0, 0, 0);
       const delivery = new Date(order.deliveryDate);
       const dueSoonDate = new Date(today);
-      dueSoonDate.setDate(dueSoonDate.getDate() + 3);
+      dueSoonDate.setDate(dueSoonDate.getDate() + 5);
       return delivery >= today && delivery <= dueSoonDate;
     }).length ||
       0);
   const stageCounts = stats?.stageCounts || {};
-  const dueOrders =
-    stats?.topDueOrders ||
-    stats?.activeOrders
-      ?.slice(0, 5)
-      .sort((a, b) => new Date(a.deliveryDate) - new Date(b.deliveryDate)) ||
-    [];
+  const dueOrders = stats?.dueSoonOrders || [];
 
   return (
     <div className="h-full flex flex-col bg-[#FDFDFD]">
@@ -231,10 +503,15 @@ const Dashboard = () => {
         </div>
         {user?.role === "Owner" && (
           <div className="flex gap-2">
-            <a href="#/calendar" className="bg-red-50 text-red-600 px-4 py-2 rounded-xl flex items-center gap-2 border border-red-100 shadow-sm cursor-pointer hover:bg-red-100 hover:border-red-200 transition-colors">
+            <a
+              href="#/calendar"
+              className="bg-red-50 text-red-600 px-4 py-2 rounded-xl flex items-center gap-2 border border-red-100 shadow-sm cursor-pointer hover:bg-red-100 hover:border-red-200 transition-colors"
+            >
               <AlertTriangle className="w-5 h-5" />
               <div className="text-sm">
-                <div className="font-bold">{stats?.extraCards?.rentPending ? "Rent Due" : "View Alerts"}</div>
+                <div className="font-bold">
+                  {stats?.extraCards?.rentPending ? "Rent Due" : "View Alerts"}
+                </div>
                 <div className="text-xs">Check calendar for details</div>
               </div>
             </a>
@@ -336,31 +613,52 @@ const Dashboard = () => {
           {user?.role === "Owner" && (
             <>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+                <div
+                  onClick={() => openDetailModal("revenue")}
+                  className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm cursor-pointer hover:shadow-md transition"
+                >
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                    Total Revenue
+                    Total Revenue Collected
                   </p>
                   <p className="text-lg font-black text-gray-800 mt-1">
                     {formatCurrency(stats?.totalRevenue)}
                   </p>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Collected of total order value: {formatCurrency(stats?.totalRevenue)} / {formatCurrency(stats?.totalOrderRevenue)}
+                  </p>
                 </div>
-                <div className="bg-white rounded-xl p-4 border border-green-50 shadow-sm">
+                <div
+                  onClick={() => openDetailModal("orderRevenue")}
+                  className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm cursor-pointer hover:shadow-md transition"
+                >
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                    Monthly Earnings
+                    Total Order Value
+                  </p>
+                  <p className="text-lg font-black text-gray-800 mt-1">
+                    {formatCurrency(stats?.totalOrderRevenue)}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Tap to view order revenue details.
+                  </p>
+                </div>
+                <div
+                  onClick={() => openDetailModal("monthlyEarnings")}
+                  className="bg-white rounded-xl p-4 border border-green-50 shadow-sm cursor-pointer hover:shadow-md transition"
+                >
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                    Monthly Revenue
                   </p>
                   <p className="text-lg font-black text-emerald-600 mt-1">
                     {formatCurrency(stats?.monthlyEarnings)}
                   </p>
-                </div>
-                <div className="bg-white rounded-xl p-4 border border-blue-50 shadow-sm">
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                    Total Collected
-                  </p>
-                  <p className="text-lg font-black text-blue-600 mt-1">
-                    {formatCurrency(stats?.totalCompletedPayments)}
+                  <p className="text-xs text-gray-500 mt-2">
+                    Tap to view payments received this month.
                   </p>
                 </div>
-                <div className="bg-white rounded-xl p-4 border border-red-50 shadow-sm">
+                <div
+                  onClick={() => openDetailModal("pending")}
+                  className="bg-white rounded-xl p-4 border border-red-50 shadow-sm cursor-pointer hover:shadow-md transition"
+                >
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
                     Pending Balances
                   </p>
@@ -378,13 +676,24 @@ const Dashboard = () => {
                         Rent Due
                       </p>
                       <p className="text-2xl font-black text-red-600 mt-1">
-                        {formatCurrency(editingRent ? rentValue : stats?.extraCards?.rentPending)}
+                        {formatCurrency(stats?.extraCards?.rentPending)}
                       </p>
                     </div>
                     <button
-                      onClick={() => {
-                        setEditingRent(!editingRent);
-                        setRentValue(stats?.extraCards?.rentPending || 0);
+                      onClick={async () => {
+                        if (editingRent) {
+                          const value = Number(rentValue) || 0;
+                          const success = await saveDashboardSettings(
+                            value,
+                            stats?.extraCards?.billsPending || 0,
+                          );
+                          if (success) {
+                            setEditingRent(false);
+                          }
+                        } else {
+                          setRentValue(stats?.extraCards?.rentPending || 0);
+                          setEditingRent(true);
+                        }
                       }}
                       className="text-sm font-semibold text-[#6D28D9] hover:text-purple-700"
                     >
@@ -395,12 +704,15 @@ const Dashboard = () => {
                     <input
                       type="number"
                       value={rentValue}
-                      onChange={(e) => setRentValue(Number(e.target.value))}
+                      onChange={(e) =>
+                        setRentValue(Number(e.target.value) || 0)
+                      }
                       className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-[#6D28D9] focus:outline-none"
                     />
                   )}
                   <p className="text-xs text-gray-500 mt-3">
-                    Owner-only rent adjustment. Save locally for current session.
+                    Owner-only rent adjustment. The updated amount will stay
+                    visible after saving.
                   </p>
                 </div>
                 <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
@@ -410,13 +722,24 @@ const Dashboard = () => {
                         Current Bill
                       </p>
                       <p className="text-2xl font-black text-orange-600 mt-1">
-                        {formatCurrency(editingBill ? billValue : stats?.extraCards?.billsPending)}
+                        {formatCurrency(stats?.extraCards?.billsPending)}
                       </p>
                     </div>
                     <button
-                      onClick={() => {
-                        setEditingBill(!editingBill);
-                        setBillValue(stats?.extraCards?.billsPending || 0);
+                      onClick={async () => {
+                        if (editingBill) {
+                          const value = Number(billValue) || 0;
+                          const success = await saveDashboardSettings(
+                            stats?.extraCards?.rentPending || 0,
+                            value,
+                          );
+                          if (success) {
+                            setEditingBill(false);
+                          }
+                        } else {
+                          setBillValue(stats?.extraCards?.billsPending || 0);
+                          setEditingBill(true);
+                        }
                       }}
                       className="text-sm font-semibold text-[#6D28D9] hover:text-purple-700"
                     >
@@ -427,7 +750,9 @@ const Dashboard = () => {
                     <input
                       type="number"
                       value={billValue}
-                      onChange={(e) => setBillValue(Number(e.target.value))}
+                      onChange={(e) =>
+                        setBillValue(Number(e.target.value) || 0)
+                      }
                       className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-[#6D28D9] focus:outline-none"
                     />
                   )}
@@ -435,12 +760,17 @@ const Dashboard = () => {
                     Track monthly utilities and current expenses.
                   </p>
                 </div>
-                <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
+                <div
+                  onClick={() => openDetailModal("payout")}
+                  className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm cursor-pointer hover:shadow-md transition"
+                >
                   <p className="text-[10px] uppercase tracking-wide text-gray-400">
                     Employee Payout Estimate
                   </p>
                   <p className="text-2xl font-black text-emerald-600 mt-1">
-                    {formatCurrency((stats?.extraCards?.staffCount || 0) * 12000)}
+                    {formatCurrency(
+                      (stats?.extraCards?.staffCount || 0) * 12000,
+                    )}
                   </p>
                   <p className="text-xs text-gray-500 mt-3">
                     Approximate payout to staff this month.
@@ -451,12 +781,21 @@ const Dashboard = () => {
                     Product Status This Month
                   </p>
                   <div className="space-y-3">
-                    {getMonthlyProductStatus().slice(0, 4).map((item) => (
-                      <div key={item.stage} className="flex items-center justify-between gap-3">
-                        <span className="text-sm text-gray-600">{item.stage}</span>
-                        <span className="text-sm font-bold text-gray-800">{item.count}</span>
-                      </div>
-                    ))}
+                    {getMonthlyProductStatus()
+                      .slice(0, 4)
+                      .map((item) => (
+                        <div
+                          key={item.stage}
+                          className="flex items-center justify-between gap-3"
+                        >
+                          <span className="text-sm text-gray-600">
+                            {item.stage}
+                          </span>
+                          <span className="text-sm font-bold text-gray-800">
+                            {item.count}
+                          </span>
+                        </div>
+                      ))}
                   </div>
                 </div>
               </div>
@@ -485,27 +824,43 @@ const Dashboard = () => {
                 </div>
                 <div className="h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={getRevenueChartData()} key={`revenue-${revenueView}`}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+                    <BarChart
+                      data={getRevenueChartData()}
+                      key={`revenue-${revenueView}`}
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        vertical={false}
+                        stroke="#f3f4f6"
+                      />
                       <XAxis
                         dataKey="name"
                         axisLine={false}
                         tickLine={false}
-                        tick={{ fontSize: 12, fill: '#9ca3af' }}
+                        tick={{ fontSize: 12, fill: "#9ca3af" }}
                       />
                       <YAxis
                         axisLine={false}
                         tickLine={false}
-                        tick={{ fontSize: 12, fill: '#9ca3af' }}
+                        tick={{ fontSize: 12, fill: "#9ca3af" }}
                       />
                       <Tooltip
                         contentStyle={{
-                          borderRadius: '12px',
-                          border: 'none',
-                          boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                          borderRadius: "12px",
+                          border: "none",
+                          boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
                         }}
                       />
-                      <Bar dataKey="paid" fill="#6D28D9" radius={[8, 8, 0, 0]} />
+                      <Bar
+                        dataKey="paid"
+                        fill="#6D28D9"
+                        radius={[8, 8, 0, 0]}
+                      />
+                      <Bar
+                        dataKey="balance"
+                        fill="#f97316"
+                        radius={[8, 8, 0, 0]}
+                      />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -535,27 +890,38 @@ const Dashboard = () => {
                 </div>
                 <div className="h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={getOrderChartData()} key={`orders-${orderView}`}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+                    <BarChart
+                      data={getOrderChartData()}
+                      key={`orders-${orderView}`}
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        vertical={false}
+                        stroke="#f3f4f6"
+                      />
                       <XAxis
                         dataKey="name"
                         axisLine={false}
                         tickLine={false}
-                        tick={{ fontSize: 12, fill: '#9ca3af' }}
+                        tick={{ fontSize: 12, fill: "#9ca3af" }}
                       />
                       <YAxis
                         axisLine={false}
                         tickLine={false}
-                        tick={{ fontSize: 12, fill: '#9ca3af' }}
+                        tick={{ fontSize: 12, fill: "#9ca3af" }}
                       />
                       <Tooltip
                         contentStyle={{
-                          borderRadius: '12px',
-                          border: 'none',
-                          boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                          borderRadius: "12px",
+                          border: "none",
+                          boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
                         }}
                       />
-                      <Bar dataKey="orders" fill="#2563EB" radius={[8, 8, 0, 0]} />
+                      <Bar
+                        dataKey="orders"
+                        fill="#2563EB"
+                        radius={[8, 8, 0, 0]}
+                      />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -692,88 +1058,163 @@ const Dashboard = () => {
                 Payment Insights
               </h3>
               <div className="flex-1 relative">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={[
-                        {
-                          name: "Cash",
-                          value: stats.paymentMethods.Cash || 0,
-                          color: "#10b981",
-                        },
-                        {
-                          name: "UPI",
-                          value: stats.paymentMethods.UPI || 0,
-                          color: "#3b82f6",
-                        },
-                        {
-                          name: "Card",
-                          value: stats.paymentMethods.Card || 0,
-                          color: "#f59e0b",
-                        },
-                        {
-                          name: "Online",
-                          value: stats.paymentMethods.Online || 0,
-                          color: "#8b5cf6",
-                        },
-                      ].filter((d) => d.value > 0)}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={80}
-                      paddingAngle={5}
-                      dataKey="value"
-                      stroke="none"
-                    >
-                      {[
-                        {
-                          name: "Cash",
-                          value: stats.paymentMethods.Cash || 0,
-                          color: "#10b981",
-                        },
-                        {
-                          name: "UPI",
-                          value: stats.paymentMethods.UPI || 0,
-                          color: "#3b82f6",
-                        },
-                        {
-                          name: "Card",
-                          value: stats.paymentMethods.Card || 0,
-                          color: "#f59e0b",
-                        },
-                        {
-                          name: "Online",
-                          value: stats.paymentMethods.Online || 0,
-                          color: "#8b5cf6",
-                        },
-                      ]
-                        .filter((d) => d.value > 0)
-                        .map((entry, index) => (
-                          <PieCell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{
-                        borderRadius: "12px",
-                        border: "none",
-                        boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
-                      }}
-                    />
-                    <Legend
-                      layout="horizontal"
-                      verticalAlign="top"
-                      align="center"
-                      wrapperStyle={{ fontSize: "10px", top: -10 }}
-                      iconType="square"
-                      iconSize={8}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
+                {totalPaymentMethodAmount > 0 ? (
+                  <>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={paymentMethodData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={80}
+                          paddingAngle={5}
+                          dataKey="value"
+                          stroke="none"
+                        >
+                          {paymentMethodData.map((entry, index) => (
+                            <PieCell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          contentStyle={{
+                            borderRadius: "12px",
+                            border: "none",
+                            boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
+                          }}
+                        />
+                        <Legend
+                          layout="horizontal"
+                          verticalAlign="top"
+                          align="center"
+                          wrapperStyle={{ fontSize: "10px", top: -10 }}
+                          iconType="square"
+                          iconSize={8}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="mt-4 text-xs text-gray-500 space-y-1">
+                      <p className="font-semibold text-gray-700">Cash vs Online</p>
+                      <p>
+                        Cash: <span className="font-semibold text-green-600">₹{cashVsOnline.Cash.toLocaleString()}</span>
+                      </p>
+                      <p>
+                        Online: <span className="font-semibold text-blue-600">₹{cashVsOnline.Online.toLocaleString()}</span>
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex h-full items-center justify-center text-sm text-gray-400">
+                    No payments recorded yet. Add a payment to see insights
+                    here.
+                  </div>
+                )}
               </div>
             </div>
           )}
+
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div>
+                <h3 className="font-bold text-gray-800 text-sm">Upcoming Appointments</h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  Brief appointment summary for the next few days.
+                </p>
+              </div>
+              <span className="text-xs font-semibold text-[#6D28D9]">
+                {upcomingAppointments.length} upcoming
+              </span>
+            </div>
+            {nextAppointments.length > 0 ? (
+              <div className="space-y-3">
+                {nextAppointments.map((appointment) => (
+                  <div
+                    key={appointment._id || appointment.date}
+                    className="rounded-2xl border border-gray-100 bg-gray-50 p-4"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-gray-800">
+                        {appointment.customerName}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {new Date(appointment.date).toLocaleDateString("en-GB")}
+                      </p>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {appointment.purpose}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-gray-100 bg-gray-50 p-6 text-center text-sm text-gray-500">
+                No upcoming appointments scheduled.
+              </div>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* Image Upload Modal */}
+      {showImageUploadModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden border border-gray-100">
+            <div className="bg-purple-50 p-4 border-b border-purple-100 flex justify-between items-center">
+              <h3 className="font-bold text-purple-800 text-lg">Upload Image</h3>
+              <button
+                onClick={() => setShowImageUploadModal(false)}
+                className="text-purple-400 hover:text-purple-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Image Category/Section Name
+                </label>
+                <input
+                  type="text"
+                  value={uploadImageName}
+                  onChange={(e) => setUploadImageName(e.target.value)}
+                  placeholder="e.g., Lehenga Designs, Blouse References"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Select Image
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setUploadImageFile(e.target.files?.[0] || null)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+              {uploadImageFile && (
+                <div className="rounded-lg border border-gray-200 p-3 text-center">
+                  <p className="text-xs text-gray-600">Selected: {uploadImageFile.name}</p>
+                </div>
+              )}
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => setShowImageUploadModal(false)}
+                  className="flex-1 px-4 py-2 rounded-lg border border-gray-300 text-gray-700 font-semibold hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleImageUpload}
+                  className="flex-1 px-4 py-2 rounded-lg bg-purple-600 text-white font-semibold hover:bg-purple-700 transition-colors"
+                >
+                  Upload
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Staff Attendance Section */}
       {user?.role === "Staff" && (
@@ -836,7 +1277,7 @@ const Dashboard = () => {
                         );
                         setTodayAttendance(todayRecord);
                         alert("Checked IN successfully!");
-                      } catch (error) {
+                      } catch {
                         alert("Error checking in");
                       }
                     }}
@@ -861,7 +1302,7 @@ const Dashboard = () => {
                         );
                         setTodayAttendance(todayRecord);
                         alert("Checked OUT successfully!");
-                      } catch (error) {
+                      } catch {
                         alert("Error checking out");
                       }
                     }}
@@ -907,6 +1348,180 @@ const Dashboard = () => {
                 <p className="text-gray-400 text-center py-4">
                   No staff available.
                 </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {detailModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-gray-100">
+            <div className="bg-slate-50 p-4 border-b border-slate-100 flex justify-between items-center">
+              <div>
+                <h3 className="font-bold text-slate-900 text-lg">
+                  {getDetailModalTitle()}
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Viewing detailed information for {detailModal}.
+                </p>
+              </div>
+              <button
+                onClick={closeDetailModal}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 max-h-[60vh] overflow-y-auto space-y-3">
+              {detailLoading ? (
+                <div className="rounded-2xl border border-gray-100 bg-gray-50 p-6 text-center text-sm text-gray-500">
+                  Loading details...
+                </div>
+              ) : getDetailModalItems().length > 0 ? (
+                getDetailModalItems().map((item, index) => (
+                  <div
+                    key={index}
+                    className="rounded-2xl border border-gray-100 bg-gray-50 p-4 shadow-sm"
+                  >
+                    {(detailModal === "revenue" ||
+                      detailModal === "monthlyEarnings" ||
+                      detailModal === "collected") && (
+                      <>
+                        <div className="flex items-center justify-between gap-2 border-b border-gray-100 pb-2 mb-2">
+                          <span className="text-sm font-semibold text-slate-800">
+                            {item.customerName}
+                          </span>
+                          <span className="text-sm font-bold text-slate-900">
+                            {formatCurrency(item.amountPaid)}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs text-slate-500">
+                          <div>
+                            <span className="font-semibold text-slate-400">Order ID:</span>{" "}
+                            <span className="bg-purple-50 text-[#6D28D9] px-2 py-0.5 rounded font-mono font-bold">
+                              {item.orderId || "N/A"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-slate-400">Method:</span>{" "}
+                            <span className="text-slate-700 font-medium">{item.method}</span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-slate-400">Total Order:</span>{" "}
+                            <span className="text-slate-700">{formatCurrency(item.totalAmount || item.amountPaid)}</span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-slate-400">Remaining Balance:</span>{" "}
+                            <span className={`font-bold ${(item.balance || 0) === 0 ? "text-emerald-600" : "text-rose-500"}`}>
+                              {(item.balance || 0) === 0 ? "Paid in Full" : formatCurrency(item.balance)}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="mt-2 pt-2 border-t border-gray-100 flex justify-between items-center text-[10px] text-slate-400">
+                          <span>Recorded by: {item.recordedBy || "Unknown"}</span>
+                          <span>{new Date(item.date).toLocaleDateString()}</span>
+                        </div>
+                      </>
+                    )}
+                    {detailModal === "orderRevenue" && (
+                      <>
+                        <div className="flex items-center justify-between gap-2 border-b border-gray-100 pb-2 mb-2">
+                          <span className="text-sm font-semibold text-slate-800">
+                            {item.customerName}
+                          </span>
+                          <span className="text-sm font-bold text-slate-900">
+                            {formatCurrency(item.totalAmount)}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs text-slate-500">
+                          <div>
+                            <span className="font-semibold text-slate-400">Order ID:</span>{" "}
+                            <span className="bg-gray-50 text-gray-800 px-2 py-0.5 rounded font-mono font-bold">
+                              {item.orderId || "N/A"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-slate-400">Collected:</span>{" "}
+                            <span className="text-slate-700 font-medium">{formatCurrency(item.collected)}</span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-slate-400">Advance Paid:</span>{" "}
+                            <span className="text-slate-700">{formatCurrency(item.advancePaid)}</span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-slate-400">Balance:</span>{" "}
+                            <span className={item.balance === 0 ? "text-emerald-600 font-bold" : "text-rose-500 font-bold"}>
+                              {formatCurrency(item.balance)}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-slate-400">Status:</span>{" "}
+                            <span className="text-slate-700">{item.status || "N/A"}</span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-slate-400">Delivery:</span>{" "}
+                            <span className="text-slate-700">{item.deliveryDate ? new Date(item.deliveryDate).toLocaleDateString() : "N/A"}</span>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                    {detailModal === "pending" && (
+                      <>
+                        <div className="flex items-center justify-between gap-2 border-b border-gray-100 pb-2 mb-2">
+                          <span className="text-sm font-semibold text-slate-800">
+                            {item.customerName}
+                          </span>
+                          <span className="text-sm font-bold text-rose-600">
+                            {formatCurrency(item.amountDue)}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs text-slate-500">
+                          <div>
+                            <span className="font-semibold text-slate-400">Order ID:</span>{" "}
+                            <span className="bg-rose-50 text-rose-600 px-2 py-0.5 rounded font-mono font-bold">
+                              {item.orderId}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-slate-400">Total Order:</span>{" "}
+                            <span className="text-slate-700">{formatCurrency(item.totalAmount)}</span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-slate-400">Advance Paid:</span>{" "}
+                            <span className="text-slate-700">{formatCurrency(item.advancePaid)}</span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-slate-400">Status:</span>{" "}
+                            <span className="bg-amber-50 text-amber-700 px-2 py-0.5 rounded font-bold text-[10px]">
+                              {item.dueDays === 0 ? "Due Today!" : `Due in ${item.dueDays} day${item.dueDays !== 1 ? "s" : ""}`}
+                            </span>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                    {detailModal === "payout" && (
+                      <>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-semibold text-slate-800">
+                            {item.name}
+                          </span>
+                          <span className="text-sm font-bold text-emerald-600">
+                            {formatCurrency(item.amountDue)}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1">
+                          Estimated: {formatCurrency(item.estimate)} • Paid:{" "}
+                          {formatCurrency(item.paid)}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-2xl border border-gray-100 bg-gray-50 p-6 text-center text-sm text-gray-500">
+                  No details available for this section.
+                </div>
               )}
             </div>
           </div>

@@ -6,8 +6,9 @@ const router = express.Router();
 
 // Generate Order ID
 const generateOrderId = async () => {
-  const count = await Order.countDocuments();
-  return `ORD-${(count + 1).toString().padStart(4, "0")}`;
+  const lastOrder = await Order.findOne().sort({ _id: -1 }).limit(1);
+  const lastNum = lastOrder?.orderId ? parseInt(lastOrder.orderId.replace("ORD-", "")) : 0;
+  return `ORD-${(lastNum + 1).toString().padStart(4, "0")}`;
 };
 
 const buildStage = (start, end) => ({
@@ -256,12 +257,21 @@ router.post("/", protect, async (req, res) => {
 // Get all orders (with filters)
 router.get("/", protect, async (req, res) => {
   try {
-    const { status, staff, search } = req.query;
+    const { status, staff, customer, search } = req.query;
     let query = {};
     if (status) query.status = status;
     if (staff) query.assignedStaff = staff;
+    if (customer) query.customer = customer;
 
-    // We can populate customer to support name search, but let's keep it simple for now and rely on frontend or separate search
+    if (search) {
+      const regex = new RegExp(search, "i");
+      query.$or = [
+        { orderId: regex },
+        { dressType: regex },
+        { fabricDetails: regex },
+      ];
+    }
+
     const orders = await Order.find(query)
       .populate("customer", "name phone")
       .populate("assignedStaff", "name")

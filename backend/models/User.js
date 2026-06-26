@@ -7,8 +7,10 @@ const userSchema = new mongoose.Schema(
     email: { type: String, unique: true, sparse: true }, // Optional for staff
     password: { type: String }, // Optional for staff
     phone: { type: String },
+    mobile: { type: String },
     address: { type: String },
     role: { type: String, enum: ["Owner", "Staff"], default: "Staff" },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     staffRoles: [
       {
         type: String,

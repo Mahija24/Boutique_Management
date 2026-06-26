@@ -27,13 +27,13 @@ const NotificationBell = () => {
            const upcoming = data.slice(0, 5); // Just take first 5 for mockup
            setNotifications(upcoming);
        } catch (error) {
-           console.error("Failed to load notifications");
+           console.error("Failed to load notifications", error);
        }
     };
     if (isOpen && notifications.length === 0) {
         fetchNotifications();
     }
-  }, [isOpen]);
+  }, [isOpen, notifications.length]);
 
   const getIconForType = (type) => {
     switch(type) {

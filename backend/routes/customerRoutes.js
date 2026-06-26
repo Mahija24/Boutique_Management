@@ -7,8 +7,9 @@ const router = express.Router();
 
 // Generate Customer ID
 const generateCustomerId = async () => {
-  const count = await Customer.countDocuments();
-  return `CUST-${(count + 1).toString().padStart(4, '0')}`;
+  const lastCustomer = await Customer.findOne().sort({ _id: -1 }).limit(1);
+  const lastNum = lastCustomer?.customerId ? parseInt(lastCustomer.customerId.replace("CUST-", "")) : 0;
+  return `CUST-${(lastNum + 1).toString().padStart(4, '0')}`;
 };
 
 // Create a new customer

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import api from "../api/axios";
 import {
   ChevronRight,
@@ -26,7 +26,7 @@ const Workflow = () => {
   const [scheduleForm, setScheduleForm] = useState(null);
   const { user } = useAuth();
 
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async () => {
     try {
       setLoading(true);
       const { data } = await api.get("/orders");
@@ -41,11 +41,14 @@ const Workflow = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
 
   useEffect(() => {
-    if (user) fetchOrders();
-  }, [user]);
+    const init = async () => {
+      await fetchOrders();
+    };
+    init();
+  }, [fetchOrders]);
 
   const advanceStatus = async (orderId, currentStatus) => {
     const currentIndex = WORKFLOW_STAGES.indexOf(currentStatus);
@@ -63,7 +66,7 @@ const Workflow = () => {
   const buildScheduleDates = (order) => {
     const schedule = order.schedule || {};
 
-    const pickDate = (stageKey, type) => {
+    const pickDate = (stageKey) => {
       const stage = schedule[stageKey];
       if (!stage) return "";
       const dateValue = stage.endDate || stage.date || stage;

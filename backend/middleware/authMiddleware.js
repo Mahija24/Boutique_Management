@@ -1,20 +1,48 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 
+const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
+
 export const protect = async (req, res, next) => {
   let token;
-  token = req.cookies.jwt || req.headers.authorization?.split(' ')[1];
+  const authHeader = req.headers.authorization;
+  const cookieToken = req.cookies?.jwt;
 
-  if (token) {
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret');
-      req.user = await User.findById(decoded.userId).select('-password');
-      next();
-    } catch (error) {
-      res.status(401).json({ message: 'Not authorized, token failed' });
+  if (authHeader && /^Bearer\s+/i.test(authHeader)) {
+    token = authHeader.split(/\s+/)[1];
+  } else if (cookieToken) {
+    token = cookieToken;
+  }
+
+  if (!token) {
+    return res.status(401).json({ message: 'Not authorized, no token' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = await User.findById(decoded.userId).select('-password');
+    return next();
+  } catch (error) {
+    const authTokenPresent = Boolean(authHeader && /^Bearer\s+/i.test(authHeader));
+    console.error('JWT verification failed', {
+      message: error.message,
+      authHeader: authTokenPresent,
+      authHeaderLength: authHeader?.split(/\s+/)[1]?.length,
+      cookieToken: Boolean(cookieToken),
+      cookieTokenLength: cookieToken?.length,
+    });
+
+    if (cookieToken && token !== cookieToken) {
+      try {
+        const decodedCookie = jwt.verify(cookieToken, JWT_SECRET);
+        req.user = await User.findById(decodedCookie.userId).select('-password');
+        return next();
+      } catch (cookieError) {
+        console.error('Cookie JWT verification also failed', cookieError.message);
+      }
     }
-  } else {
-    res.status(401).json({ message: 'Not authorized, no token' });
+
+    return res.status(401).json({ message: 'Not authorized, token failed' });
   }
 };
 

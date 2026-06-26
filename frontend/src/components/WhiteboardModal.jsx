@@ -13,7 +13,6 @@ import {
   Share2,
 } from "lucide-react";
 import { ReactSketchCanvas } from "react-sketch-canvas";
-import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 
 const WhiteboardModal = ({ order, onClose, fetchOrders }) => {
@@ -33,14 +32,11 @@ const WhiteboardModal = ({ order, onClose, fetchOrders }) => {
 
   const [extraDataAndNotes, setExtraDataAndNotes] = useState(combineTextData());
   const [imageUrls, setImageUrls] = useState(order.whiteboard?.imageUrls || []);
-  const [drawingUrls, setDrawingUrls] = useState(
-    order.whiteboard?.drawingUrls || [],
-  );
+  const [canvasPaths, setCanvasPaths] = useState(order.whiteboard?.canvasPaths || []);
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState(null);
   const [mediaRecorder, setMediaRecorder] = useState(null);
   const canvasRef = useRef(null);
-  const whiteboardRef = useRef(null);
 
   const startRecording = async () => {
     try {
@@ -126,14 +122,15 @@ const WhiteboardModal = ({ order, onClose, fetchOrders }) => {
 
   const saveDrawing = async () => {
     if (canvasRef.current) {
-      const drawingData = await canvasRef.current.exportImage("png");
-      setDrawingUrls([...drawingUrls, drawingData]);
+      // save vector paths so drawings can be reloaded/edited later
+      const paths = await canvasRef.current.exportPaths();
+      setCanvasPaths([...(canvasPaths || []), paths]);
       canvasRef.current.clearCanvas();
     }
   };
 
   const removeDrawing = (index) => {
-    setDrawingUrls(drawingUrls.filter((_, i) => i !== index));
+    setCanvasPaths((canvasPaths || []).filter((_, i) => i !== index));
   };
 
   const handleSave = async () => {
@@ -142,7 +139,7 @@ const WhiteboardModal = ({ order, onClose, fetchOrders }) => {
         whiteboard: {
           extraDataAndNotes,
           imageUrls,
-          drawingUrls,
+          canvasPaths,
           audioBlob: audioBlob ? await blobToBase64(audioBlob) : null,
         },
       });
@@ -166,7 +163,6 @@ const WhiteboardModal = ({ order, onClose, fetchOrders }) => {
   const generateOfficialBill = () => {
     const doc = new jsPDF("p", "mm", "a4");
     const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
     let yPos = 20;
 
     // Header
@@ -520,29 +516,37 @@ const WhiteboardModal = ({ order, onClose, fetchOrders }) => {
                   </button>
                 </div>
               </div>
-              <div className="border border-gray-200 rounded-lg flex-1 bg-white overflow-hidden">
+              <div className="border border-gray-200 rounded-lg flex-1 bg-white overflow-hidden min-h-[360px]">
                 <ReactSketchCanvas
                   ref={canvasRef}
-                  strokeWidth={2}
+                  strokeWidth={3}
                   strokeColor="black"
                   width="100%"
                   height="100%"
+                  style={{ touchAction: "none", width: "100%", height: "100%" }}
+                  canvasStyle={{ width: "100%", height: "100%", minHeight: "360px", backgroundColor: "#ffffff" }}
+                  allowOnlyPointerType="all"
+                  withTimestamp
                 />
               </div>
               <div className="flex gap-2 overflow-x-auto pb-2 mt-2">
-                {drawingUrls.map((url, i) => (
-                  <div key={i} className="relative">
-                    <img
-                      src={url}
-                      alt="drawing"
-                      className="h-20 w-20 object-contain bg-gray-50 rounded-lg border border-gray-200"
-                    />
-                    <button
-                      onClick={() => removeDrawing(i)}
-                      className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
+                {(canvasPaths || []).map((paths, i) => (
+                  <div key={i} className="relative bg-gray-50 rounded-lg p-2 border border-gray-200">
+                    <div className="text-xs text-gray-600 mb-2">Drawing {i + 1}</div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => canvasRef.current?.loadPaths(paths)}
+                        className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200"
+                      >
+                        Load
+                      </button>
+                      <button
+                        onClick={() => removeDrawing(i)}
+                        className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded hover:bg-red-200"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

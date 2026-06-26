@@ -9,6 +9,9 @@ import Workflow from './pages/Workflow';
 import Staff from './pages/Staff';
 import Profile from './pages/Profile';
 import CalendarSystem from './pages/CalendarSystem';
+import TaskAnalyzer from './pages/TaskAnalyzer';
+import Appointments from './pages/Appointments';
+import Gallery from './pages/Gallery';
 
 // Protected Route Wrapper
 const ProtectedRoute = ({ children, ownerOnly }) => {
@@ -36,6 +39,9 @@ function AppRoutes() {
         <Route path="customers/*" element={<Customers />} />
         <Route path="orders/*" element={<Orders />} />
         <Route path="workflow/*" element={<Workflow />} />
+        <Route path="task-analyzer" element={<TaskAnalyzer />} />
+        <Route path="appointments" element={<Appointments />} />
+        <Route path="gallery" element={<Gallery />} />
         <Route path="calendar/*" element={<CalendarSystem />} />
         <Route path="profile" element={<Profile />} />
         <Route path="staff/*" element={<ProtectedRoute ownerOnly><Staff /></ProtectedRoute>} />
